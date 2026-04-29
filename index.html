@@ -1,90 +1,15 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>真言地牢 - Dungeon of Lexicon</title>
-  <link rel="stylesheet" href="/src/style.css">
-</head>
-<body>
-  <div id="app">
-    <!-- Phaser Canvas 容器 -->
-    <div id="game-container"></div>
-
-    <!-- HTML UI 覆盖层 -->
-    <div id="ui-overlay">
-      <!-- 顶部：怪物信息 -->
-      <div id="monster-hud" class="hud-panel">
-        <div class="monster-name">SNAKE</div>
-        <div class="hp-bar-container">
-          <div class="hp-bar-bg"></div>
-          <div class="hp-bar-fill monster-hp-fill"></div>
-          <span class="hp-text">20 / 20</span>
-        </div>
-        <div class="monster-weakness">弱点: cut + head</div>
-      </div>
-
-      <!-- 左下角：玩家信息 -->
-      <div id="player-hud" class="hud-panel">
-        <div class="player-label">言灵师</div>
-        <div class="hp-bar-container small">
-          <div class="hp-bar-bg"></div>
-          <div class="hp-bar-fill player-hp-fill"></div>
-          <span class="hp-text">100 / 100</span>
-        </div>
-      </div>
-
-      <!-- 中央：战斗反馈 -->
-      <div id="feedback-area"></div>
-
-      <!-- 底部：输入区域 -->
-      <div id="input-panel">
-        <div id="input-hint">输入单词施法，空格切换Combo</div>
-        <div id="input-wrapper">
-          <span id="input-prefix">></span>
-          <input
-            id="word-input"
-            type="text"
-            autocomplete="off"
-            autocorrect="off"
-            autocapitalize="off"
-            spellcheck="false"
-            placeholder="_"
-            maxlength="20"
-          />
-        </div>
-        <div id="combo-indicator"></div>
-        <div id="word-suggestions"></div>
-      </div>
-
-      <!-- 伤害数字容器 -->
-      <div id="damage-numbers"></div>
-    </div>
-
-    <!-- 开始画面 -->
-    <div id="start-screen">
-      <div class="start-content">
-        <h1>真言地牢</h1>
-        <p class="subtitle">Dungeon of Lexicon</p>
-        <p class="desc">输入英文单词施法战斗</p>
-        <div class="instructions">
-          <p><span class="key">输入单词</span> + <span class="key">Enter</span> = 施法攻击</p>
-          <p><span class="key">词A</span> + <span class="key">空格</span> + <span class="key">词B</span> = Combo</p>
-        </div>
-        <button id="start-btn">进入地牢</button>
-      </div>
-    </div>
-
-    <!-- 结束画面 -->
-    <div id="end-screen" class="hidden">
-      <div class="end-content">
-        <h2 id="end-title"></h2㸮
-        <p id="end-desc"㸼/p㸾
-        <button id="restart-btn"㸾再次挑战㰼/button㸾
-      㰼/div㸾
-    㰼/div㸾
-  㰼/div㸾
-
-  㰼script type="module" src="/src/main.ts"㸼㰼/script㸾
-㰼/body㸾
-㰼/html㸾
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>真言地牢 - Dungeon of Lexicon</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700;800;900&family=Fira+Code:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=MedievalSharp&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

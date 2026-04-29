@@ -1,27 +1,8 @@
-# Dependencies
-node_modules/
-package-lock.json
-yarn.lock
-pnpm-lock.yaml
-
-# Build output
-dist/
-build/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS
+node_modules
+dist
 .DS_Store
-Thumbs.db
-
-# Logs
+dist_deploy
 *.log
-npm-debug.log*
-
-# Local env
-.env
-.env.local
+.env*
+dist
+dist_deploy
