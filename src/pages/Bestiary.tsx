@@ -51,6 +51,11 @@ function getMonsterSprite(id: string): string {
     m007: 'monster-invisible.png',
     m008: 'monster-dark.png',
     m009: 'monster-boss-homonym.png',
+    m010: 'monster-dragon.png',
+    m011: 'monster-golem.png',
+    m012: 'monster-ghost.png',
+    m013: 'monster-demon.png',
+    m014: 'monster-reaper.png',
   };
   return `/${map[id] || 'monster-snake.png'}`;
 }

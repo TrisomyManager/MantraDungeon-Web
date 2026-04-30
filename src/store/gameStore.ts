@@ -136,15 +136,12 @@ export interface GameState {
   languageLevel: number;
 
   // Game flow
-  screen: 'home' | 'camp' | 'dungeon' | 'battle' | 'altar' | 'bestiary' | 'gameover';
-  previousScreen: string;
   isPaused: boolean;
   lastMonsterAttackAt: number;
   currentWeakness: string[];
   currentDefenseResult: { word: string; reduction: number } | null;
 
   // Actions
-  setScreen: (screen: GameState['screen']) => void;
   setLanguageLevel: (level: number) => void;
   checkLanguageUpgrade: () => void;
   inscribeWord: (wordId: string) => void;
@@ -502,19 +499,12 @@ export const useGameStore = create<GameState>((set, get) => {
   languageLevel: saved?.languageLevel ?? 1,
 
   // Game flow
-  screen: 'home',
-  previousScreen: 'home',
   isPaused: false,
   lastMonsterAttackAt: 0,
   currentWeakness: [],
   currentDefenseResult: null,
 
   // ─── Actions ──────────────────────────────────────────────
-
-  setScreen: (screen) => set((state) => ({
-    previousScreen: state.screen,
-    screen,
-  })),
 
   setLanguageLevel: (level) => set(() => ({
     languageLevel: Math.max(1, Math.min(4, level)),
@@ -532,11 +522,15 @@ export const useGameStore = create<GameState>((set, get) => {
   }),
 
   inscribeWord: (wordId) => set((s) => {
-    const word = s.vocabulary.find(w => w.wordId === wordId);
-    if (!word) return {};
+    if (!s.vocabulary.find(w => w.wordId === wordId)) return {};
+    if (s.inscribed.includes(wordId)) return {};
 
     return {
+      inscribed: [...s.inscribed, wordId],
       totalWordsInscribed: s.totalWordsInscribed + 1,
+      vocabulary: s.vocabulary.map(w =>
+        w.wordId === wordId ? { ...w, wear: 0 } : w
+      ),
     };
   }),
 
@@ -555,7 +549,6 @@ export const useGameStore = create<GameState>((set, get) => {
       currentRoomId: rooms[0]?.id || null,
       playerHp: 100 + (tier - 1) * 20,
       playerMaxHp: 100 + (tier - 1) * 20,
-      screen: 'dungeon',
       battleLog: [],
       totalDamageDealt: 0,
       totalDamageTaken: 0,
@@ -579,6 +572,8 @@ export const useGameStore = create<GameState>((set, get) => {
         monsterHp: monster.maxHp,
         isPlayerTurn: true,
         comboWords: null,
+        currentWeakness: pickCurrentWeakness(monster.weaknessPool),
+        currentDefenseResult: null,
         battleLog: [
           {
             id: `log-${++battleLogIdCounter}`,
@@ -587,14 +582,12 @@ export const useGameStore = create<GameState>((set, get) => {
             timestamp: Date.now(),
           },
         ],
-        screen: 'battle',
       };
     }
 
     if (room.type === 'altar') {
       return {
         currentRoomId: roomId,
-        screen: 'altar',
       };
     }
 
@@ -616,7 +609,6 @@ export const useGameStore = create<GameState>((set, get) => {
             timestamp: Date.now(),
           },
         ],
-        screen: 'dungeon',
       };
     }
 
@@ -875,9 +867,7 @@ export const useGameStore = create<GameState>((set, get) => {
     }));
 
     if (newHp <= 0) {
-      setTimeout(() => {
-        set({ screen: 'gameover', runStatus: 'lost' });
-      }, 800);
+      set({ runStatus: 'lost' });
     }
   },
 
@@ -922,7 +912,9 @@ export const useGameStore = create<GameState>((set, get) => {
         r.id === s.currentRoomId ? { ...r, cleared: true } : r
       );
       const clearedCount = updatedRooms.filter(r => r.cleared).length;
-      const allCleared = clearedCount >= updatedRooms.length;
+      const isBossRoom = s.currentMonster?.type === 'boss';
+      const allCleared = updatedRooms.every(r => r.cleared);
+      const runOver = isBossRoom || allCleared;
 
       if (won) {
         const xpGain = s.currentMonster ? s.currentMonster.tier * 15 + 25 : 25;
@@ -940,13 +932,13 @@ export const useGameStore = create<GameState>((set, get) => {
           totalMonstersDefeated: s.totalMonstersDefeated + s.monstersDefeatedThisRun,
           currentMonster: null,
           comboWords: null,
-          screen: 'gameover',
-          runStatus: 'won',
+          // Only mark run as won when boss is defeated or all rooms cleared
+          runStatus: runOver ? 'won' : 'active',
           battleLog: [
             ...s.battleLog,
             {
               id: `log-${++battleLogIdCounter}`,
-              text: allCleared ? 'DUNGEON CLEARED! VICTORY!' : 'Monster defeated!',
+              text: runOver ? 'DUNGEON CLEARED! VICTORY!' : 'Monster defeated! Press onward...',
               type: 'system',
               timestamp: Date.now(),
             },
@@ -957,7 +949,6 @@ export const useGameStore = create<GameState>((set, get) => {
       return {
         dungeonRooms: updatedRooms,
         currentMonster: null,
-        screen: 'gameover',
         runStatus: 'lost',
         battleLog: [
           ...s.battleLog,
@@ -973,7 +964,6 @@ export const useGameStore = create<GameState>((set, get) => {
   },
 
   returnToCamp: () => set(() => ({
-    screen: 'camp',
     currentMonster: null,
     comboWords: null,
     isPaused: false,
@@ -983,7 +973,6 @@ export const useGameStore = create<GameState>((set, get) => {
   })),
 
   returnToDungeon: () => set(() => ({
-    screen: 'dungeon',
     runStatus: 'active',
     currentDefenseResult: null,
   })),
@@ -1028,7 +1017,6 @@ export const useGameStore = create<GameState>((set, get) => {
       bestCombo: null,
       wordsLearnedThisRun: [],
       monstersDefeatedThisRun: 0,
-      screen: 'dungeon',
       runStatus: 'active',
       isPaused: false,
       lastMonsterAttackAt: 0,
@@ -1054,7 +1042,6 @@ export const useGameStore = create<GameState>((set, get) => {
     bestCombo: null,
     wordsLearnedThisRun: [],
     monstersDefeatedThisRun: 0,
-    screen: 'home',
     runStatus: 'active',
     isPaused: false,
     lastMonsterAttackAt: 0,
@@ -1093,8 +1080,6 @@ export const useGameStore = create<GameState>((set, get) => {
     wordsLearnedThisRun: [],
     monstersDefeatedThisRun: 0,
     languageLevel: 1,
-    screen: 'home',
-    previousScreen: 'home',
     isPaused: false,
     lastMonsterAttackAt: 0,
     currentWeakness: [],
@@ -1107,8 +1092,8 @@ export const useGameStore = create<GameState>((set, get) => {
 // Auto-save on state changes
 useGameStore.subscribe(
   (state) => {
-    // Only save camp/game-level state, not runtime battle state
-    if (state.screen !== 'battle' && state.screen !== 'dungeon') {
+    // Only save between runs, not during active battle/dungeon
+    if (!state.currentMonster && state.dungeonRooms.length === 0) {
       saveSave(state);
     }
   }

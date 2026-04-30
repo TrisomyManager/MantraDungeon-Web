@@ -12,6 +12,8 @@ import {
   Sparkles,
   Volume2,
   VolumeX,
+  Mic,
+  MicOff,
 } from 'lucide-react';
 import { useGameStore, WEAKNESS_ZH, SEMANTIC_RELATIONS, DEFENSE_WORDS_BY_TYPE, WEAKNESS_DEFENSE_BY_TYPE, getWordBySpell } from '@/store/gameStore';
 import type { DamageResult, BattleLogEntry } from '@/store/gameStore';
@@ -249,11 +251,15 @@ const Battle: React.FC = React.memo(function Battle() {
   const [defensePool, setDefensePool] = useState<string[]>([]);
   const [wordPopups, setWordPopups] = useState<WordPopup[]>([]);
 
+  const [isListening, setIsListening] = useState(false);
+
   const inputRef = useRef<HTMLInputElement>(null);
   const timerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const comboTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
   const battleEndedRef = useRef(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
 
   const tierColor = TIER_COLORS[currentTier] || TIER_COLORS[1];
 
@@ -470,11 +476,37 @@ const Battle: React.FC = React.memo(function Battle() {
     if (!isPlayerTurn && currentMonster && monsterHp > 0 && !isPaused) {
       setTimerActive(true);
       setTimerKey((k) => k + 1);
-      focusInput(); // Focus input immediately for defense typing
+      focusInput();
+
+      // Auto-fire monster attack after 3 s if player doesn't respond
+      timerTimeoutRef.current = setTimeout(() => {
+        if (battleEndedRef.current) return;
+        setScreenShake(true);
+        setRedVignette(true);
+        monsterAttack();
+        const monsterDmg = useGameStore.getState().currentMonster?.attack ?? 0;
+        if (monsterDmg > 0) addDamageNumber(monsterDmg, 'playerDamage');
+        setTimerActive(false);
+        setTimeout(() => {
+          setScreenShake(false);
+          setRedVignette(false);
+          focusInput();
+        }, 500);
+      }, 3000);
     } else {
       setTimerActive(false);
+      if (timerTimeoutRef.current) {
+        clearTimeout(timerTimeoutRef.current);
+        timerTimeoutRef.current = null;
+      }
     }
-  }, [isPlayerTurn, currentMonster, monsterHp, isPaused, focusInput]);
+    return () => {
+      if (timerTimeoutRef.current) {
+        clearTimeout(timerTimeoutRef.current);
+        timerTimeoutRef.current = null;
+      }
+    };
+  }, [isPlayerTurn, currentMonster, monsterHp, isPaused, focusInput, monsterAttack, addDamageNumber]);
 
   // ── Check Battle End ─────────────────────────────────────
   useEffect(() => {
@@ -546,6 +578,7 @@ const Battle: React.FC = React.memo(function Battle() {
     return () => {
       if (timerTimeoutRef.current) clearTimeout(timerTimeoutRef.current);
       if (comboTimeoutRef.current) clearTimeout(comboTimeoutRef.current);
+      recognitionRef.current?.stop();
     };
   }, []);
 
@@ -708,6 +741,11 @@ const Battle: React.FC = React.memo(function Battle() {
     if (!input.trim()) return;
 
     if (!isPlayerTurn) {
+      // Cancel auto-fire timer since player responded
+      if (timerTimeoutRef.current) {
+        clearTimeout(timerTimeoutRef.current);
+        timerTimeoutRef.current = null;
+      }
       // Monster turn — defense input, then resolve monster attack immediately
       const result = useGameStore.getState().playerDefend(input.trim().toLowerCase());
       if (result) {
@@ -811,6 +849,56 @@ const Battle: React.FC = React.memo(function Battle() {
     setInput(val);
     setInputState(e.target.value.length > 0 ? 'typing' : 'idle');
   }, [comboMode, wordPool, handleCast]);
+
+  // ── STT: Web Speech Recognition toggle ──────────────────
+  const handleMicToggle = useCallback(() => {
+    if (isPaused || battleEndedRef.current) return;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SpeechRecognition = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return; // browser doesn't support STT
+
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognitionRef.current = recognition;
+
+    recognition.onstart = () => setIsListening(true);
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript.trim().toLowerCase().replace(/[^a-z ]/g, '');
+      recognition.stop();
+      setIsListening(false);
+      if (!transcript) return;
+
+      // Inject transcript and immediately submit
+      setInput(transcript);
+      // Use a microtask so the state update has propagated before we synthesise the submit event
+      setTimeout(() => {
+        const formEl = inputRef.current?.closest('form') as HTMLFormElement | null;
+        if (formEl) {
+          formEl.requestSubmit();
+        }
+      }, 0);
+    };
+
+    recognition.onerror = () => {
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognition.start();
+  }, [isPaused, isListening]);
 
   // ── Monster HP percent ───────────────────────────────────
   const monsterHpPercent = currentMonster ? (monsterHp / currentMonster.maxHp) * 100 : 0;
@@ -1461,6 +1549,30 @@ const Battle: React.FC = React.memo(function Battle() {
               >
                 {isPlayerTurn ? t('cast_btn') : 'DEFEND'}
               </button>
+              {/* STT mic button — only rendered when browser supports Speech Recognition */}
+              {typeof window !== 'undefined' && ((window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition) && (
+                <motion.button
+                  type="button"
+                  onClick={handleMicToggle}
+                  disabled={isPaused}
+                  animate={isListening ? { scale: [1, 1.1, 1] } : { scale: 1 }}
+                  transition={isListening ? { duration: 0.8, repeat: Infinity } : {}}
+                  className="h-14 w-14 flex items-center justify-center rounded-radius-md transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer flex-shrink-0"
+                  style={{
+                    backgroundColor: isListening
+                      ? 'rgba(231,76,60,0.2)'
+                      : 'rgba(30,30,46,0.5)',
+                    border: isListening
+                      ? '2px solid #E74C3C'
+                      : '2px solid rgba(232,224,208,0.12)',
+                    boxShadow: isListening ? '0 0 16px rgba(231,76,60,0.5)' : 'none',
+                  }}
+                >
+                  {isListening
+                    ? <MicOff className="w-5 h-5 text-[#E74C3C]" />
+                    : <Mic className="w-5 h-5 text-text-muted" />}
+                </motion.button>
+              )}
             </form>
 
             {/* Word Pool — visual reference for current turn (manual typing only) */}

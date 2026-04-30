@@ -14,7 +14,7 @@ import {
   Hammer,
 } from 'lucide-react';
 import { useGameStore } from '@/store/gameStore';
-import type { WordEntry, GameState } from '@/store/gameStore';
+import type { WordEntry } from '@/store/gameStore';
 import { useGameText } from '@/hooks/useGameText';
 import Layout from '@/components/Layout';
 
@@ -418,7 +418,6 @@ const Camp: React.FC = React.memo(function Camp() {
     currentTier,
     vocabulary,
     languageLevel,
-    setScreen,
     startDungeon,
   } = useGameStore();
 
@@ -434,11 +433,10 @@ const Camp: React.FC = React.memo(function Camp() {
 
   // Navigation handlers
   const handleNavigate = useCallback(
-    (path: string, screen: string) => {
-      setScreen(screen as GameState['screen']);
+    (path: string) => {
       navigate(path);
     },
-    [navigate, setScreen]
+    [navigate]
   );
 
   const handleCardClick = useCallback(
@@ -454,15 +452,14 @@ const Camp: React.FC = React.memo(function Camp() {
             state.enterRoom(firstRoom.id);
             navigate(`/battle/${firstRoom.id}`);
           } else {
-            setScreen('dungeon');
             navigate('/dungeon');
           }
         }
-      } else if (card.path && card.screen) {
-        handleNavigate(card.path, card.screen);
+      } else if (card.path) {
+        handleNavigate(card.path);
       }
     },
-    [currentTier, handleNavigate, navigate, setScreen, startDungeon]
+    [currentTier, handleNavigate, navigate, startDungeon]
   );
 
   const handleSelectTier = useCallback(

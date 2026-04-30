@@ -6,6 +6,8 @@ import {
   ArrowLeft,
   Sword,
   Hammer,
+  BookOpen,
+  CheckCircle,
 } from 'lucide-react';
 import { useGameStore } from '@/store/gameStore';
 import type { WordEntry } from '@/store/gameStore';
@@ -104,6 +106,7 @@ const FloatingRunes: React.FC = React.memo(function FloatingRunes() {
 interface WordCardProps {
   word: WordEntry;
   isSelected: boolean;
+  isInscribed: boolean;
   onClick: () => void;
   index: number;
 }
@@ -111,6 +114,7 @@ interface WordCardProps {
 const WordCard: React.FC<WordCardProps> = React.memo(function WordCard({
   word,
   isSelected,
+  isInscribed,
   onClick,
   index,
 }) {
@@ -131,7 +135,9 @@ const WordCard: React.FC<WordCardProps> = React.memo(function WordCard({
         borderRadius: '8px',
         border: isSelected
           ? '2px solid #D4A017'
-          : '1px solid rgba(232,224,208,0.1)',
+          : isInscribed
+            ? '1px solid rgba(46,204,113,0.35)'
+            : '1px solid rgba(232,224,208,0.1)',
         padding: '12px',
         boxShadow: isSelected ? '0 0 12px rgba(212,160,23,0.3)' : 'none',
       }}
@@ -149,6 +155,14 @@ const WordCard: React.FC<WordCardProps> = React.memo(function WordCard({
       onClick={onClick}
       layout
     >
+      {/* Inscribed indicator */}
+      {isInscribed && (
+        <CheckCircle
+          className="absolute top-2 right-2 w-3 h-3"
+          style={{ color: '#2ECC71' }}
+        />
+      )}
+
       {/* Word (English) */}
       <span
         className="font-fira-code text-mono-md text-text-primary uppercase text-center"
@@ -212,11 +226,13 @@ const WordCard: React.FC<WordCardProps> = React.memo(function WordCard({
 
 interface WordDetailPanelProps {
   word: WordEntry | null;
+  isInscribed: boolean;
+  onInscribe: (wordId: string) => void;
   onClose: () => void;
 }
 
 const WordDetailPanel: React.FC<WordDetailPanelProps> = React.memo(
-  function WordDetailPanel({ word, onClose }) {
+  function WordDetailPanel({ word, isInscribed, onInscribe, onClose }) {
     const langLevel = useLangLevel();
     if (!word) return null;
     const detailMeaning = getText(langLevel, word.meaningZh || word.meaning, word.meaning);
@@ -355,6 +371,28 @@ const WordDetailPanel: React.FC<WordDetailPanelProps> = React.memo(
                 当磨损达到50时，威力降至0%。
               </p>
             </div>
+
+            {/* Inscribe Action */}
+            {isInscribed ? (
+              <div className="flex items-center gap-2 text-[#2ECC71]">
+                <CheckCircle className="w-4 h-4" />
+                <span className="font-cinzel text-body-sm tracking-wider">已铭刻 — 磨损已重置</span>
+              </div>
+            ) : (
+              <motion.button
+                className="flex items-center gap-2 px-4 py-2 rounded-radius-md font-cinzel text-body-sm tracking-wider cursor-pointer"
+                style={{
+                  backgroundColor: '#D4A017',
+                  color: '#0A0A0F',
+                }}
+                whileHover={{ scale: 1.03, filter: 'brightness(1.15)' }}
+                whileTap={{ scale: 0.97 }}
+                onClick={() => { onInscribe(word!.wordId); onClose(); }}
+              >
+                <BookOpen className="w-4 h-4" />
+                铭刻此词 — 重置磨损
+              </motion.button>
+            )}
           </div>
         </motion.div>
       </motion.div>
@@ -412,7 +450,8 @@ const Altar: React.FC = React.memo(function Altar() {
   const t = useGameText();
   const {
     vocabulary,
-    setScreen,
+    inscribed,
+    inscribeWord,
     startDungeon,
     currentTier,
   } = useGameStore();
@@ -462,14 +501,12 @@ const Altar: React.FC = React.memo(function Altar() {
 
   const handleEnterDungeon = useCallback(() => {
     startDungeon(currentTier);
-    setScreen('dungeon');
     navigate('/dungeon');
-  }, [currentTier, navigate, setScreen, startDungeon]);
+  }, [currentTier, navigate, startDungeon]);
 
   const handleBackToCamp = useCallback(() => {
-    setScreen('camp');
     navigate('/camp');
-  }, [navigate, setScreen]);
+  }, [navigate]);
 
   return (
     <Layout>
@@ -610,6 +647,7 @@ const Altar: React.FC = React.memo(function Altar() {
                       key={word.wordId}
                       word={word}
                       isSelected={selectedWordId === word.wordId}
+                      isInscribed={inscribed.includes(word.wordId)}
                       onClick={() => handleWordClick(word.wordId)}
                       index={index}
                     />
@@ -649,6 +687,8 @@ const Altar: React.FC = React.memo(function Altar() {
           <WordDetailPanel
             key={selectedWord.wordId}
             word={selectedWord}
+            isInscribed={inscribed.includes(selectedWord.wordId)}
+            onInscribe={inscribeWord}
             onClose={handleCloseDetail}
           />
         )}
