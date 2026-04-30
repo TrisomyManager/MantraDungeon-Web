@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useParams } from 'react-router';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Zap,
@@ -203,6 +203,7 @@ const LogEntry: React.FC<{ entry: BattleLogEntry }> = React.memo(function LogEnt
 
 const Battle: React.FC = React.memo(function Battle() {
   const navigate = useNavigate();
+  const { roomId: routeRoomId } = useParams<{ roomId: string }>();
   const t = useGameText();
   const {
     currentMonster,
@@ -240,6 +241,7 @@ const Battle: React.FC = React.memo(function Battle() {
   const [showComboFeedback, setShowComboFeedback] = useState(false);
   const [timerActive, setTimerActive] = useState(false);
   const [timerKey, setTimerKey] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(3000); // ms — for visible countdown
   const [weaknessRevealed, setWeaknessRevealed] = useState(false);
   const [audioOn] = useState(() => {
     const saved = localStorage.getItem('dol-audio');
@@ -256,12 +258,30 @@ const Battle: React.FC = React.memo(function Battle() {
   const inputRef = useRef<HTMLInputElement>(null);
   const timerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const comboTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const focusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
   const battleEndedRef = useRef(false);
+  const isPausedRef = useRef(isPaused);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
 
   const tierColor = TIER_COLORS[currentTier] || TIER_COLORS[1];
+
+  // Keep isPausedRef in sync with isPaused so timer interval can read latest value without restarting
+  useEffect(() => {
+    isPausedRef.current = isPaused;
+  }, [isPaused]);
+
+  // Route guard: redirect to /dungeon if URL roomId doesn't match active battle
+  useEffect(() => {
+    if (!routeRoomId) return;
+    const store = useGameStore.getState();
+    const roomExists = store.dungeonRooms.some(r => r.id === routeRoomId);
+    const isActive = !!store.currentMonster && store.currentRoomId === routeRoomId;
+    if (!roomExists || (!isActive && !store.currentMonster)) {
+      navigate('/dungeon', { replace: true });
+    }
+  }, [routeRoomId, navigate]);
 
   // ── Word Pool + Weakness: unified generation ──────────────
   // Weakness is drawn FROM the word pool, ensuring consistency
@@ -409,7 +429,11 @@ const Battle: React.FC = React.memo(function Battle() {
   }, []);
 
   const focusInput = useCallback(() => {
-    setTimeout(() => inputRef.current?.focus(), 50);
+    if (focusTimeoutRef.current) clearTimeout(focusTimeoutRef.current);
+    focusTimeoutRef.current = setTimeout(() => {
+      inputRef.current?.focus();
+      focusTimeoutRef.current = null;
+    }, 50);
   }, []);
 
   // ── Scroll Log ───────────────────────────────────────────
@@ -472,41 +496,64 @@ const Battle: React.FC = React.memo(function Battle() {
   }, []);
 
   // ── Monster Turn Input Prompt ────────────────────────────
+  // Pause-aware countdown: ticks every 100ms, freezes while isPaused, fires at 0
   useEffect(() => {
-    if (!isPlayerTurn && currentMonster && monsterHp > 0 && !isPaused) {
-      setTimerActive(true);
-      setTimerKey((k) => k + 1);
-      focusInput();
+    if (isPlayerTurn || !currentMonster || monsterHp <= 0 || battleEndedRef.current) {
+      setTimerActive(false);
+      if (timerTimeoutRef.current) {
+        clearInterval(timerTimeoutRef.current);
+        timerTimeoutRef.current = null;
+      }
+      return;
+    }
 
-      // Auto-fire monster attack after 3 s if player doesn't respond
-      timerTimeoutRef.current = setTimeout(() => {
-        if (battleEndedRef.current) return;
+    setTimerActive(true);
+    setTimerKey((k) => k + 1);
+    setTimeLeft(3000);
+    focusInput();
+
+    let remaining = 3000;
+    let lastTick = performance.now();
+    const tickMs = 100;
+
+    timerTimeoutRef.current = setInterval(() => {
+      if (battleEndedRef.current) return;
+      const now = performance.now();
+      if (isPausedRef.current) {
+        lastTick = now; // freeze: don't decrement while paused
+        return;
+      }
+      remaining -= now - lastTick;
+      lastTick = now;
+      if (remaining <= 0) {
+        if (timerTimeoutRef.current) {
+          clearInterval(timerTimeoutRef.current);
+          timerTimeoutRef.current = null;
+        }
+        setTimeLeft(0);
+        setTimerActive(false);
         setScreenShake(true);
         setRedVignette(true);
         monsterAttack();
         const monsterDmg = useGameStore.getState().currentMonster?.attack ?? 0;
         if (monsterDmg > 0) addDamageNumber(monsterDmg, 'playerDamage');
-        setTimerActive(false);
         setTimeout(() => {
           setScreenShake(false);
           setRedVignette(false);
           focusInput();
         }, 500);
-      }, 3000);
-    } else {
-      setTimerActive(false);
-      if (timerTimeoutRef.current) {
-        clearTimeout(timerTimeoutRef.current);
-        timerTimeoutRef.current = null;
+      } else {
+        setTimeLeft(remaining);
       }
-    }
+    }, tickMs);
+
     return () => {
       if (timerTimeoutRef.current) {
-        clearTimeout(timerTimeoutRef.current);
+        clearInterval(timerTimeoutRef.current);
         timerTimeoutRef.current = null;
       }
     };
-  }, [isPlayerTurn, currentMonster, monsterHp, isPaused, focusInput, monsterAttack, addDamageNumber]);
+  }, [isPlayerTurn, currentMonster, monsterHp, focusInput, monsterAttack, addDamageNumber]);
 
   // ── Check Battle End ─────────────────────────────────────
   useEffect(() => {
@@ -514,7 +561,14 @@ const Battle: React.FC = React.memo(function Battle() {
       battleEndedRef.current = true;
       setMonsterDefeated(true);
       setTimerActive(false);
-      if (timerTimeoutRef.current) clearTimeout(timerTimeoutRef.current);
+      if (timerTimeoutRef.current) {
+        clearInterval(timerTimeoutRef.current);
+        timerTimeoutRef.current = null;
+      }
+      if (comboTimeoutRef.current) {
+        clearTimeout(comboTimeoutRef.current);
+        comboTimeoutRef.current = null;
+      }
 
       setTimeout(() => {
         setShowVictory(true);
@@ -543,7 +597,14 @@ const Battle: React.FC = React.memo(function Battle() {
       setShowDefeat(true);
       setScreenShake(true);
       setRedVignette(true);
-      if (timerTimeoutRef.current) clearTimeout(timerTimeoutRef.current);
+      if (timerTimeoutRef.current) {
+        clearInterval(timerTimeoutRef.current);
+        timerTimeoutRef.current = null;
+      }
+      if (comboTimeoutRef.current) {
+        clearTimeout(comboTimeoutRef.current);
+        comboTimeoutRef.current = null;
+      }
 
       setTimeout(() => {
         endBattle(false);
@@ -576,8 +637,9 @@ const Battle: React.FC = React.memo(function Battle() {
   // ── Cleanup on unmount ───────────────────────────────────
   useEffect(() => {
     return () => {
-      if (timerTimeoutRef.current) clearTimeout(timerTimeoutRef.current);
+      if (timerTimeoutRef.current) clearInterval(timerTimeoutRef.current);
       if (comboTimeoutRef.current) clearTimeout(comboTimeoutRef.current);
+      if (focusTimeoutRef.current) clearTimeout(focusTimeoutRef.current);
       recognitionRef.current?.stop();
     };
   }, []);
@@ -743,7 +805,7 @@ const Battle: React.FC = React.memo(function Battle() {
     if (!isPlayerTurn) {
       // Cancel auto-fire timer since player responded
       if (timerTimeoutRef.current) {
-        clearTimeout(timerTimeoutRef.current);
+        clearInterval(timerTimeoutRef.current);
         timerTimeoutRef.current = null;
       }
       // Monster turn — defense input, then resolve monster attack immediately
@@ -814,7 +876,10 @@ const Battle: React.FC = React.memo(function Battle() {
       comboTimeoutRef.current = setTimeout(() => {
         setComboMode(false);
         setFirstWord('');
-        // Auto-cast first word if combo timed out (validate pool first)
+        // Auto-cast first word only if battle is still live and pool valid
+        if (battleEndedRef.current) return;
+        const fresh = useGameStore.getState();
+        if (fresh.monsterHp <= 0 || !fresh.isPlayerTurn) return;
         if (wordPool.includes(word)) {
           handleCast(word);
         }
@@ -839,6 +904,9 @@ const Battle: React.FC = React.memo(function Battle() {
           comboTimeoutRef.current = setTimeout(() => {
             setComboMode(false);
             setFirstWord('');
+            if (battleEndedRef.current) return;
+            const fresh = useGameStore.getState();
+            if (fresh.monsterHp <= 0 || !fresh.isPlayerTurn) return;
             if (wordPool.includes(word)) handleCast(word);
           }, 5000);
           setInputState('typing');
@@ -897,7 +965,13 @@ const Battle: React.FC = React.memo(function Battle() {
       setIsListening(false);
     };
 
-    recognition.start();
+    try {
+      recognition.start();
+    } catch {
+      // Permission denied or recognition already running — reset state
+      setIsListening(false);
+      recognitionRef.current = null;
+    }
   }, [isPaused, isListening]);
 
   // ── Monster HP percent ───────────────────────────────────
@@ -1095,7 +1169,9 @@ const Battle: React.FC = React.memo(function Battle() {
           {/* Timer + Pause (Right) */}
           <div className="flex items-center gap-3">
             {!isPlayerTurn && timerActive && (
-              <span className="font-fira-code text-mono-sm text-[#E74C3C]">3.0s</span>
+              <span className="font-fira-code text-mono-sm text-[#E74C3C]">
+                {(timeLeft / 1000).toFixed(1)}s
+              </span>
             )}
             <button
               onClick={togglePause}
@@ -1123,7 +1199,7 @@ const Battle: React.FC = React.memo(function Battle() {
                     : t('monster_turn') + '...'}
               </span>
               <span className="font-fira-code text-caption text-text-muted">
-                {timerActive ? '3.0s' : '---'}
+                {timerActive ? `${(timeLeft / 1000).toFixed(1)}s` : '---'}
               </span>
             </div>
             <div
@@ -1131,13 +1207,11 @@ const Battle: React.FC = React.memo(function Battle() {
               style={{ backgroundColor: 'rgba(30,30,46,0.8)' }}
             >
               {!isPlayerTurn && timerActive ? (
-                <motion.div
+                <div
                   key={timerKey}
-                  initial={{ width: '100%' }}
-                  animate={{ width: '0%' }}
-                  transition={{ duration: 3, ease: 'linear' }}
-                  className="h-full rounded-full"
+                  className="h-full rounded-full transition-[width] duration-100 ease-linear"
                   style={{
+                    width: `${Math.max(0, (timeLeft / 3000) * 100)}%`,
                     background: 'linear-gradient(90deg, #2ECC71 0%, #D4A017 50%, #E74C3C 100%)',
                   }}
                 />
@@ -1514,7 +1588,7 @@ const Battle: React.FC = React.memo(function Battle() {
                   onChange={handleInputChange}
                   onKeyDown={handleKeyDown}
                   onFocus={handleInputFocus}
-                  disabled={isPaused}
+                  disabled={isPaused || monsterDefeated || showVictory || showDefeat}
                   placeholder={
                     isPaused
                       ? 'PAUSED'
@@ -1535,7 +1609,7 @@ const Battle: React.FC = React.memo(function Battle() {
               </div>
               <button
                 type="submit"
-                disabled={!input.trim() || isPaused}
+                disabled={!input.trim() || isPaused || monsterDefeated || showVictory || showDefeat}
                 className="h-14 px-4 rounded-radius-md font-cinzel text-body-sm font-bold transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                 style={{
                   backgroundColor: input.trim() && !isPaused
@@ -1554,7 +1628,7 @@ const Battle: React.FC = React.memo(function Battle() {
                 <motion.button
                   type="button"
                   onClick={handleMicToggle}
-                  disabled={isPaused}
+                  disabled={isPaused || monsterDefeated || showVictory || showDefeat}
                   animate={isListening ? { scale: [1, 1.1, 1] } : { scale: 1 }}
                   transition={isListening ? { duration: 0.8, repeat: Infinity } : {}}
                   className="h-14 w-14 flex items-center justify-center rounded-radius-md transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer flex-shrink-0"

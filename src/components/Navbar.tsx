@@ -1,4 +1,5 @@
 import React from 'react';
+import { useLocation } from 'react-router';
 import { useGameStore } from '@/store/gameStore';
 import { Heart, Sword } from 'lucide-react';
 
@@ -10,11 +11,13 @@ const TIER_COLORS: Record<number, { primary: string; name: string }> = {
   5: { primary: '#2980B9', name: 'Deep Space' },
 };
 
-const Navbar: React.FC = React.memo(function Navbar() {
-  const { playerHp, playerMaxHp, xp, level, currentTier, screen } = useGameStore();
+const NAV_PATH_PREFIXES = ['/camp', '/dungeon', '/battle', '/altar', '/bestiary'];
 
-  // Only show on camp, dungeon, battle screens
-  const showNav = screen === 'camp' || screen === 'dungeon' || screen === 'battle' || screen === 'altar' || screen === 'bestiary';
+const Navbar: React.FC = React.memo(function Navbar() {
+  const { playerHp, playerMaxHp, xp, level, currentTier } = useGameStore();
+  const { pathname } = useLocation();
+
+  const showNav = NAV_PATH_PREFIXES.some(p => pathname === p || pathname.startsWith(`${p}/`));
   if (!showNav) return null;
 
   const tierInfo = TIER_COLORS[currentTier] || TIER_COLORS[1];

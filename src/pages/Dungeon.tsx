@@ -335,6 +335,35 @@ const Dungeon: React.FC = React.memo(function Dungeon() {
     return lines;
   }, [dungeonRooms, nodePositions]);
 
+  // Empty state: no active dungeon (e.g., direct URL visit, post-resetRun)
+  if (dungeonRooms.length === 0) {
+    return (
+      <Layout>
+        <div
+          className="min-h-[100dvh] flex flex-col items-center justify-center relative overflow-hidden gap-6"
+          style={{ backgroundColor: '#0A0A0F' }}
+        >
+          <MapPin className="w-12 h-12 text-text-muted" />
+          <p className="font-cinzel text-body text-text-secondary text-center max-w-md">
+            No active dungeon. Return to camp to start a new run.
+          </p>
+          <button
+            onClick={() => navigate('/camp')}
+            className="px-6 py-3 rounded-radius-md font-cinzel text-body-sm font-bold transition-all duration-200 cursor-pointer"
+            style={{
+              backgroundColor: tierConfig.primary,
+              color: '#0A0A0F',
+              boxShadow: `0 0 12px ${tierConfig.glow}`,
+            }}
+          >
+            <ArrowLeft className="inline w-4 h-4 mr-2" />
+            Return to Camp
+          </button>
+        </div>
+      </Layout>
+    );
+  }
+
   return (
     <Layout>
       <div

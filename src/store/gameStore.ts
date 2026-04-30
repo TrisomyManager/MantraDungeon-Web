@@ -10,12 +10,20 @@ export * from './wordDatabase';
    ============================================================ */
 
 const SAVE_KEY = 'dungeon-of-lexicon-save';
+const SAVE_SCHEMA_VERSION = 2;
 
 function loadSave(): Partial<GameState> | null {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (parsed.schemaVersion !== SAVE_SCHEMA_VERSION) {
+      // Schema mismatch — discard rather than load incompatible state
+      localStorage.removeItem(SAVE_KEY);
+      return null;
+    }
+    return parsed as Partial<GameState>;
   } catch {
     return null;
   }
@@ -24,6 +32,7 @@ function loadSave(): Partial<GameState> | null {
 function saveSave(state: Partial<GameState>) {
   try {
     const saveData = {
+      schemaVersion: SAVE_SCHEMA_VERSION,
       playerHp: state.playerHp,
       playerMaxHp: state.playerMaxHp,
       xp: state.xp,
@@ -33,6 +42,7 @@ function saveSave(state: Partial<GameState>) {
       totalWordsInscribed: state.totalWordsInscribed,
       totalMonstersDefeated: state.totalMonstersDefeated,
       vocabulary: state.vocabulary,
+      inscribed: state.inscribed,
       languageLevel: state.languageLevel,
       totalDamageDealt: state.totalDamageDealt,
       totalDamageTaken: state.totalDamageTaken,
@@ -117,6 +127,7 @@ export interface GameState {
 
   // Vocabulary mastery
   vocabulary: WordEntry[];
+  inscribed: string[];
 
   // Combat
   currentMonster: MonsterData | null;
@@ -480,6 +491,7 @@ export const useGameStore = create<GameState>((set, get) => {
 
   // Vocabulary (load from save)
   vocabulary: saved?.vocabulary ?? [...WORD_DATABASE],
+  inscribed: saved?.inscribed ?? [],
 
   // Combat (always fresh)
   currentMonster: null,
@@ -618,9 +630,12 @@ export const useGameStore = create<GameState>((set, get) => {
   playerCast: (word) => {
     const state = get();
     if (!state.isPlayerTurn || !state.currentMonster || state.runStatus !== 'active') return null;
+    if (state.monsterHp <= 0) return null;
 
+    const lowered = word.trim().toLowerCase();
     const wordEntry = findWord(word);
-    if (!wordEntry) {
+    const inVocab = !!wordEntry && state.vocabulary.some(v => v.word.toLowerCase() === lowered);
+    if (!wordEntry || !inVocab) {
       set((s) => ({
         battleLog: [
           ...s.battleLog,
@@ -702,11 +717,16 @@ export const useGameStore = create<GameState>((set, get) => {
   playerCombo: (wordA, wordB) => {
     const state = get();
     if (!state.isPlayerTurn || !state.currentMonster || state.runStatus !== 'active') return null;
+    if (state.monsterHp <= 0) return null;
 
     const entryA = findWord(wordA);
     const entryB = findWord(wordB);
+    const aLower = wordA.trim().toLowerCase();
+    const bLower = wordB.trim().toLowerCase();
+    const inVocabA = !!entryA && state.vocabulary.some(v => v.word.toLowerCase() === aLower);
+    const inVocabB = !!entryB && state.vocabulary.some(v => v.word.toLowerCase() === bLower);
 
-    if (!entryA || !entryB) {
+    if (!entryA || !entryB || !inVocabA || !inVocabB) {
       set((s) => ({
         battleLog: [
           ...s.battleLog,
@@ -878,7 +898,8 @@ export const useGameStore = create<GameState>((set, get) => {
 
     const w = word.trim().toLowerCase();
     const attackType = state.currentMonster.attackType;
-    const effectiveness = DEFENSE_EFFECTIVENESS[attackType]?.[w] || 0;
+    const rawEffectiveness = DEFENSE_EFFECTIVENESS[attackType]?.[w] || 0;
+    const effectiveness = Math.max(0, Math.min(0.95, rawEffectiveness));
 
     if (effectiveness > 0) {
       set(() => ({
@@ -1027,6 +1048,7 @@ export const useGameStore = create<GameState>((set, get) => {
 
   resetRun: () => set(() => ({
     playerHp: 100,
+    playerMaxHp: 100,
     currentFloor: 1,
     roomsCleared: 0,
     totalRooms: 0,
@@ -1066,8 +1088,6 @@ export const useGameStore = create<GameState>((set, get) => {
     dungeonRooms: [],
     runStatus: 'active',
     vocabulary: [...WORD_DATABASE],
-    encountered: WORD_DATABASE.map(w => w.wordId),
-    resonated: [],
     inscribed: [],
     currentMonster: null,
     monsterHp: 0,
@@ -1089,11 +1109,13 @@ export const useGameStore = create<GameState>((set, get) => {
   togglePause: () => set((s) => ({ isPaused: !s.isPaused })),
 }});
 
-// Auto-save on state changes
+// Auto-save on state changes — safe boundaries only (never mid-battle or mid-run-between-rooms)
 useGameStore.subscribe(
   (state) => {
-    // Only save between runs, not during active battle/dungeon
-    if (!state.currentMonster && state.dungeonRooms.length === 0) {
+    if (
+      !state.currentMonster &&
+      (state.dungeonRooms.length === 0 || state.runStatus !== 'active')
+    ) {
       saveSave(state);
     }
   }
